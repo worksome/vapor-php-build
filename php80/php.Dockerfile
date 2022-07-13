@@ -163,7 +163,6 @@ RUN set -xe; \
             --enable-http \
             --enable-ftp  \
             --enable-file \
-            --enable-ldap \
             --enable-ldaps  \
             --enable-proxy  \
             --enable-tftp \
@@ -220,7 +219,7 @@ ENV ZIP_BUILD_DIR=${BUILD_DIR}/zip
 RUN set -xe; \
     mkdir -p ${ZIP_BUILD_DIR}/bin/; \
 # Download and upack the source code
-    curl -Ls https://github.com/nih-at/libzip/archive/rel-${VERSION_ZIP//./-}.tar.gz \
+    curl -Ls https://github.com/nih-at/libzip/releases/download/v${VERSION_ZIP}/libzip-${VERSION_ZIP}.tar.gz \
   | tar xzC ${ZIP_BUILD_DIR} --strip-components=1
 
 # Move into the unpackaged code directory
@@ -341,7 +340,7 @@ ENV LIBONIG_BUILD_DIR=${BUILD_DIR}/libonig
 
 RUN  set -xe \
     && mkdir -p ${LIBONIG_BUILD_DIR}/bin \
-    && curl -Ls https://github.com/kkos/oniguruma/releases/download/v6.9.3/onig-6.9.3.tar.gz \
+    && curl -Ls https://github.com/kkos/oniguruma/releases/download/v6.9.6/onig-6.9.6.tar.gz \
     | tar xzC ${LIBONIG_BUILD_DIR} --strip-components=1
 
 WORKDIR  ${LIBONIG_BUILD_DIR}/
@@ -356,6 +355,32 @@ RUN set -xe; \
         --disable-static
 
 RUN set -xe; \
+    make install
+
+# Build Git
+
+ARG git
+ENV VERSION_GIT=${git}
+ENV GIT_BUILD_DIR=${BUILD_DIR}/git
+
+RUN set -xe; \
+    mkdir -p ${GIT_BUILD_DIR}/bin; \
+    curl -Ls https://github.com/git/git/archive/refs/tags/v${VERSION_GIT}.tar.gz \
+    | tar xzC ${GIT_BUILD_DIR} --strip-components=1
+
+WORKDIR  ${GIT_BUILD_DIR}/
+
+RUN set -xe; \
+    make configure
+
+RUN set -xe; \
+    CFLAGS="" \
+    CPPFLAGS="-I${INSTALL_DIR}/include  -I/usr/include" \
+    LDFLAGS="-L${INSTALL_DIR}/lib64 -L${INSTALL_DIR}/lib" \
+    ./configure --prefix=${INSTALL_DIR}
+
+RUN set -xe; \
+    make all; \
     make install
 
 # Build PHP
@@ -374,6 +399,16 @@ RUN set -xe; \
 WORKDIR  ${PHP_BUILD_DIR}/
 
 RUN LD_LIBRARY_PATH= yum install -y readline-devel gettext-devel libicu-devel sqlite-devel libxslt-devel ImageMagick-devel
+
+RUN cp -a /usr/lib64/libgpg-error.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libtinfo.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libgcrypt.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libreadline.so?* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libasprintf.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libgettextpo.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/preloadable_libintl.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/lib*xslt*.so* ${INSTALL_DIR}/lib64/
+RUN cp -a /usr/lib64/libsqlite3*.so* ${INSTALL_DIR}/lib64/
 
 RUN set -xe \
  && ./buildconf --force \
@@ -423,16 +458,21 @@ RUN set -xe; \
     make clean; \
     cp php.ini-production ${INSTALL_DIR}/etc/php/php.ini
 
-# RUN pecl install redis
-RUN pecl install -f redis-5.3.2
+# Build Redis (https://pecl.php.net/package/redis/)
 
-# RUN pecl install imagick ( Uncomment the line below for adding the "Imagick" extension )
-# RUN pecl install imagick
+ARG redis
+ENV VERSION_REDIS=${redis}
+
+RUN pecl install -f redis-${VERSION_REDIS}
 
 # Strip All Unneeded Symbols
 
 RUN find ${INSTALL_DIR} -type f -name "*.so*" -o -name "*.a"  -exec strip --strip-unneeded {} \;
 RUN find ${INSTALL_DIR} -type f -executable -exec sh -c "file -i '{}' | grep -q 'x-executable; charset=binary'" \; -print|xargs strip --strip-all
+
+# Install the composer binary
+
+COPY --from=composer /usr/bin/composer ${INSTALL_DIR}/bin
 
 # Symlink All Binaries / Libaries
 
@@ -453,24 +493,22 @@ RUN cp /opt/vapor/lib64/* /opt/lib || true
 RUN ls /opt/bin
 RUN /opt/bin/php -i | grep curl
 
-# Install AWS CLI
+# Copy the specific git-core tools we need
 
-FROM amazonlinux:latest as awsclibuilder
+RUN mkdir -p /opt/libexec/git-core
 
-WORKDIR /root
-
-RUN curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
-
-RUN yum update -y && yum install -y unzip
-
-RUN unzip awscli-bundle.zip && cd awscli-bundle;
-
-RUN ./awscli-bundle/install -i /opt/awscli -b /opt/awscli/aws
-
+RUN cp /opt/vapor/libexec/git-core/git-checkout /opt/libexec/git-core/git-checkout
+RUN cp /opt/vapor/libexec/git-core/git-checkout--worker /opt/libexec/git-core/git-checkout--worker
+RUN cp /opt/vapor/libexec/git-core/git-clone /opt/libexec/git-core/git-clone
+RUN cp /opt/vapor/libexec/git-core/git-fetch /opt/libexec/git-core/git-fetch
+RUN cp /opt/vapor/libexec/git-core/git-fetch-pack /opt/libexec/git-core/git-fetch-pack
+RUN cp /opt/vapor/libexec/git-core/git-remote /opt/libexec/git-core/git-remote
+RUN cp /opt/vapor/libexec/git-core/git-remote-http /opt/libexec/git-core/git-remote-http
+RUN cp /opt/vapor/libexec/git-core/git-remote-https /opt/libexec/git-core/git-remote-https
 
 # Copy Everything To The Base Container
 
-FROM amazonlinux:2018.03
+FROM amazonlinux:2
 
 ENV INSTALL_DIR="/opt/vapor"
 
@@ -482,10 +520,4 @@ RUN mkdir -p /opt
 WORKDIR /opt
 
 COPY --from=php_builder /opt /opt
-COPY --from=awsclibuilder /opt/awscli/lib/python2.7/site-packages/ /opt/awscli/
-COPY --from=awsclibuilder /opt/awscli/bin/ /opt/awscli/bin/
-COPY --from=awsclibuilder /opt/awscli/bin/aws /opt/awscli/aws
-
 RUN LD_LIBRARY_PATH= yum -y install zip
-
-RUN rm -rf /opt/awscli/pip* /opt/awscli/setuptools* /opt/awscli/awscli/examples

@@ -357,6 +357,32 @@ RUN set -xe; \
 RUN set -xe; \
     make install
 
+# Build Git
+
+ARG git
+ENV VERSION_GIT=${git}
+ENV GIT_BUILD_DIR=${BUILD_DIR}/git
+
+RUN set -xe; \
+    mkdir -p ${GIT_BUILD_DIR}/bin; \
+    curl -Ls https://github.com/git/git/archive/refs/tags/v${VERSION_GIT}.tar.gz \
+    | tar xzC ${GIT_BUILD_DIR} --strip-components=1
+
+WORKDIR  ${GIT_BUILD_DIR}/
+
+RUN set -xe; \
+    make configure
+
+RUN set -xe; \
+    CFLAGS="" \
+    CPPFLAGS="-I${INSTALL_DIR}/include  -I/usr/include" \
+    LDFLAGS="-L${INSTALL_DIR}/lib64 -L${INSTALL_DIR}/lib" \
+    ./configure --prefix=${INSTALL_DIR}
+
+RUN set -xe; \
+    make all; \
+    make install
+
 # Build PHP
 
 ARG php
@@ -402,7 +428,7 @@ RUN set -xe \
         --with-xsl=${INSTALL_DIR} \
         --enable-gd \
         --disable-phpdbg \
-        --disable-phpdbg-webhelper \
+        # --disable-phpdbg-webhelper \
         --with-sodium \
         --with-readline \
         --with-openssl \
@@ -444,6 +470,10 @@ RUN pecl install -f redis-${VERSION_REDIS}
 RUN find ${INSTALL_DIR} -type f -name "*.so*" -o -name "*.a"  -exec strip --strip-unneeded {} \;
 RUN find ${INSTALL_DIR} -type f -executable -exec sh -c "file -i '{}' | grep -q 'x-executable; charset=binary'" \; -print|xargs strip --strip-all
 
+# Install the composer binary
+
+COPY --from=composer /usr/bin/composer ${INSTALL_DIR}/bin
+
 # Symlink All Binaries / Libaries
 
 RUN mkdir -p /opt/bin
@@ -452,7 +482,7 @@ RUN mkdir -p /opt/lib/curl
 
 RUN cp /opt/vapor/bin/* /opt/bin
 RUN cp /opt/vapor/sbin/* /opt/bin
-RUN cp /opt/vapor/lib/php/extensions/no-debug-non-zts-20200930/* /opt/bin
+RUN cp /opt/vapor/lib/php/extensions/no-debug-non-zts-20210902/* /opt/bin
 
 RUN cp /opt/vapor/lib/* /opt/lib || true
 RUN cp /opt/vapor/lib/libcurl* /opt/lib/curl || true
@@ -462,6 +492,19 @@ RUN cp /opt/vapor/lib64/* /opt/lib || true
 
 RUN ls /opt/bin
 RUN /opt/bin/php -i | grep curl
+
+# Copy the specific git-core tools we need
+
+RUN mkdir -p /opt/libexec/git-core
+
+RUN cp /opt/vapor/libexec/git-core/git-checkout /opt/libexec/git-core/git-checkout
+RUN cp /opt/vapor/libexec/git-core/git-checkout--worker /opt/libexec/git-core/git-checkout--worker
+RUN cp /opt/vapor/libexec/git-core/git-clone /opt/libexec/git-core/git-clone
+RUN cp /opt/vapor/libexec/git-core/git-fetch /opt/libexec/git-core/git-fetch
+RUN cp /opt/vapor/libexec/git-core/git-fetch-pack /opt/libexec/git-core/git-fetch-pack
+RUN cp /opt/vapor/libexec/git-core/git-remote /opt/libexec/git-core/git-remote
+RUN cp /opt/vapor/libexec/git-core/git-remote-http /opt/libexec/git-core/git-remote-http
+RUN cp /opt/vapor/libexec/git-core/git-remote-https /opt/libexec/git-core/git-remote-https
 
 # Copy Everything To The Base Container
 

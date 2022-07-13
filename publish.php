@@ -9,15 +9,8 @@ require_once __DIR__ . '/vendor/autoload.php';
 Dotenv::createImmutable(__DIR__)->safeLoad();
 
 $layers = [
-    // Amazon Linux 1:
-    // 'php-73' => 'Laravel Vapor PHP 7.3 for Amazon Linux 1',
-    // 'php-74' => 'Laravel Vapor PHP 7.4 for Amazon Linux 1',
-    // 'php-80' => 'Laravel Vapor PHP 8.0 for Amazon Linux 1',
-
-    // Amazon Linux 2:
-    'php-74al2' => 'Laravel Vapor PHP 7.4 for Amazon Linux 2',
-    'php-80al2' => 'Laravel Vapor PHP 8.0 for Amazon Linux 2',
-    'php-81al2' => 'Laravel Vapor PHP 8.1 for Amazon Linux 2',
+    'php-80' => 'Laravel Vapor PHP 8.0 for Amazon Linux 2',
+    'php-81' => 'Laravel Vapor PHP 8.1 for Amazon Linux 2',
 ];
 
 $regions = [
@@ -51,12 +44,13 @@ foreach (array_keys($regions) as $region) {
 
     foreach ($layersToPublish as $layer => $description) {
         $lambda = new LambdaClient([
+            'profile' => $_ENV['AWS_PROFILE'],
             'region' => $region,
             'version' => 'latest',
         ]);
 
         $publishResponse = $lambda->publishLayerVersion([
-            'LayerName' => 'vapor-'.$layer,
+            'LayerName' => 'pest-lambda-'.$layer,
             'Description' => $description,
             'Content' => [
                 'ZipFile' => file_get_contents(__DIR__."/export/{$layer}.zip"),
@@ -65,7 +59,7 @@ foreach (array_keys($regions) as $region) {
 
         $lambda->addLayerVersionPermission([
             'Action' => 'lambda:GetLayerVersion',
-            'LayerName' => 'vapor-'.$layer,
+            'LayerName' => 'pest-lambda-'.$layer,
             'Principal' => '*',
             'StatementId' => (string) time(),
             'VersionNumber' => (string) $publishResponse['Version'],
